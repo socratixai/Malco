@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>__TITLE__</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@800&family=Raleway:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#F6F8F7; --ink:#353535; --soft:#5f6466; --rule:#dcdfe0; --panel:#fff; --deep:#254E64; --acc:#B6A78E; --err:#9b3b2e;
+  box-sizing:border-box;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#17262f; --ink:#e7ebec; --soft:#aeb7bb; --rule:#2c3d47; --panel:#1f313b; --deep:#9fc0d2; --acc:#c9bca5; --err:#f0a08f;
+}}
+:root[data-theme="dark"]{ --bg:#17262f; --ink:#e7ebec; --soft:#aeb7bb; --rule:#2c3d47; --panel:#1f313b; --deep:#9fc0d2; --acc:#c9bca5; --err:#f0a08f; }
+*{box-sizing:inherit; margin:0}
+html,body{height:100%}
+body{background:var(--bg); color:var(--ink); font-family:"Raleway","Segoe UI",Helvetica,Arial,sans-serif; font-weight:500; font-size:17px; line-height:1.6; display:grid; place-items:center; padding:16px}
+.card{width:100%; max-width:26rem; background:var(--panel); border:1px solid var(--rule); border-radius:14px; padding:2rem 1.5rem; box-shadow:0 10px 30px rgba(0,0,0,.06)}
+.eyebrow{font-size:.78rem; letter-spacing:.14em; text-transform:uppercase; color:var(--acc); font-weight:700; margin-bottom:.4rem}
+h1{font-family:"Playfair Display",Georgia,serif; font-weight:800; color:var(--deep); font-size:1.6rem; line-height:1.15; margin-bottom:.6rem}
+p{color:var(--soft); margin-bottom:1.2rem; font-size:.95rem}
+label{display:block; font-size:.85rem; font-weight:700; margin-bottom:.4rem}
+input{width:100%; font:inherit; color:var(--ink); background:transparent; border:1px solid var(--rule); border-radius:8px; padding:.7rem .85rem}
+input:focus{outline:2px solid var(--deep); outline-offset:1px; border-color:transparent}
+button{margin-top:.9rem; width:100%; font:inherit; font-weight:700; color:#fff; background:#254E64; border:0; border-radius:8px; padding:.75rem; cursor:pointer}
+button:disabled{opacity:.6; cursor:progress}
+.msg{min-height:1.4em; margin-top:.7rem; font-size:.88rem; color:var(--err)}
+.hidden{display:none}
+</style>
+</head>
+<body>
+<main class="card" id="gate">
+  <div class="eyebrow">Private</div>
+  <h1>__TITLE__</h1>
+  <p>This page is password protected. Enter the password you were given to continue.</p>
+  <form id="f" autocomplete="off">
+    <label for="pw">Password</label>
+    <input id="pw" type="password" autocomplete="current-password" autofocus required>
+    <button id="go" type="submit">Open</button>
+    <div class="msg" id="msg" role="alert" aria-live="polite"></div>
+  </form>
+</main>
+<script id="payload" type="application/json">__PAYLOAD__</script>
+<script>
+(function(){
+  var data = JSON.parse(document.getElementById('payload').textContent);
+  var form = document.getElementById('f'), pw = document.getElementById('pw'), go = document.getElementById('go'), msg = document.getElementById('msg');
+  var enc = new TextEncoder();
+  var STORE = 'gate-key:' + data.salt;
+
+  function fromB64(s){ var b = atob(s), u = new Uint8Array(b.length); for (var i=0;i<b.length;i++) u[i]=b.charCodeAt(i); return u; }
+  function toB64(u){ var s=''; for (var i=0;i<u.length;i++) s+=String.fromCharCode(u[i]); return btoa(s); }
+
+  async function deriveRaw(password){
+    var base = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
+    var bits = await crypto.subtle.deriveBits({ name:'PBKDF2', salt: fromB64(data.salt), iterations: data.it, hash:'SHA-256' }, base, 256);
+    return new Uint8Array(bits);
+  }
+  async function decryptWith(raw){
+    var key = await crypto.subtle.importKey('raw', raw, { name:'AES-GCM' }, false, ['decrypt']);
+    var pt = await crypto.subtle.decrypt({ name:'AES-GCM', iv: fromB64(data.iv) }, key, fromB64(data.ct));
+    return new TextDecoder().decode(pt);
+  }
+  function show(html){
+    document.open(); document.write(html); document.close();
+  }
+
+  // Already unlocked in this tab? Reuse the derived key so refreshes don't re-prompt.
+  (async function(){
+    try {
+      var saved = sessionStorage.getItem(STORE);
+      if (saved) show(await decryptWith(fromB64(saved)));
+    } catch (e) { try { sessionStorage.removeItem(STORE); } catch (_) {} }
+  })();
+
+  form.addEventListener('submit', async function(ev){
+    ev.preventDefault();
+    msg.textContent = ''; go.disabled = true; go.textContent = 'Checking…';
+    try {
+      var raw = await deriveRaw(pw.value);
+      var html = await decryptWith(raw);
+      try { sessionStorage.setItem(STORE, toB64(raw)); } catch (_) {}
+      show(html);
+    } catch (e) {
+      msg.textContent = 'That password is not right. Please try again.';
+      pw.select();
+    } finally {
+      go.disabled = false; go.textContent = 'Open';
+    }
+  });
+})();
+</script>
+</body>
+</html>
